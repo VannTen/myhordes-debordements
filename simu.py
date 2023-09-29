@@ -1,11 +1,12 @@
 """Chances de morts en cas de debordement sur hordes."""
 
-import random, math
+import random, math, re
 import click
 import sqlite3
 from collections import Counter
-from itertools import repeat
+from itertools import repeat, chain
 from typing import Iterable
+from bs4 import BeautifulSoup as soup
 
 
 def _generate_distribution() -> list[float]:
@@ -17,11 +18,11 @@ def _generate_distribution() -> list[float]:
     return distribution
 
 
-def _nb_death(debord: int) -> int:
-    def_perso = [19] * 40
+def _nb_death(debord: int, def_perso: [int]) -> int:
+    #def_perso = [17] * 23 + [13] * 4 + [10] * 7 + [16] * 5 + [9]
 
-    return sum(def_perso < (debord * percent)
-               for def_perso, percent in zip(
+    return sum(_def_perso < (debord * percent)
+               for _def_perso, percent in zip(
                 random.choices(def_perso, k=10),
                 _generate_distribution()))
 
@@ -83,22 +84,25 @@ def _get_debord(attack: int, hard_def: int) -> int:
 @click.argument("min_attack", type=int)
 @click.argument("max_attack", type=int)
 @click.argument("hard_def", type=int)
-def main(
-    day: int, min_attack: int, max_attack: int, hard_def: int
-) -> None:
+@click.argument("citizen_def", type=click.File('rb'))
+def main( day: int, min_attack: int, max_attack: int, hard_def: int,
+         citizen_def ) -> None:
     test_cases = 1000000
     random.seed()
     #attacks = _generate_attacks(day,min_attack, max_attack)
 #    valid_attacks = (a for a in attacks if (a >= min_attack and a <= max_attack))
+    def_perso = [int(re.search(r'\d+', x.get_text())[0])
+                 for x in soup(citizen_def, 'html.parser').find_all(
+                     "span", class_="citizen-defense")]
     results = Counter(
-        _nb_death(attack - hard_def)
+        _nb_death(attack - hard_def, def_perso)
         for attack, _ in zip(_generate_attacks(day,min_attack, max_attack)
                              , range(test_cases))
     )
     print(
-        "Chances de morts:\n"
+        f"Chances de morts pour {hard_def} de défense:\n"
         + "\n".join(
             f"{key} morts: {value / test_cases * 100}%"
-            for key, value in results.items()
+            for key, value in sorted(results.items())
         )
     )
