@@ -1,27 +1,32 @@
 """Chances de morts en cas de debordement sur hordes."""
 
-import random
+import random, math
 import click
+import sqlite3
 from collections import Counter
 from itertools import repeat
+from typing import Iterable
 
 
 def _generate_distribution() -> list[float]:
     distribution = [random.random() for _ in range(10)]
     distribution[0] += 0.3
     total = sum(distribution)
-    random.shuffle(distribution)
-    total = sum(distribution)
     distribution = [x / total for x in distribution]
 
     return distribution
 
 
-def _nb_death(debord: int, min_def: int) -> int:
-    return sum(min_def < (debord * percent) for percent in _generate_distribution())
+def _nb_death(debord: int) -> int:
+    def_perso = [19] * 40
+
+    return sum(def_perso < (debord * percent)
+               for def_perso, percent in zip(
+                random.choices(def_perso, k=10),
+                _generate_distribution()))
 
 
-def _generate_attack(day: int) -> int:
+def _generate_attacks(day: int, estim_min: int, estim_max: int) -> Iterable[int]:
     theorical = {
         1: [23, 31],
         2: [23, 83],
@@ -55,32 +60,40 @@ def _generate_attack(day: int) -> int:
         30: [14261, 17576],
         31: [15625, 19141],
     }
-    attack = random.randint(*theorical[day])
-    if attack > (sum(theorical[day]) / 2):
-        attack = random.randint(*theorical[day])
-    return attack
+    attack_positions = [item for sublist in sqlite3.connect("attack-mhordes.sqlite3").cursor().execute("""
+            SELECT (CAST (attaque AS float) - estim_min) / (estim_max - estim_min) FROM no_fda;
+            """) for item in sublist] # flatten the cursor into a simple list
+    while True:
+        attack = math.inf
+        while attack > theorical[day][1]:
+            attack_position = random.choice(attack_positions)
+            attack = estim_min + (attack_position * (estim_max - estim_min))
+
+        yield attack
 
 
 def _get_debord(attack: int, hard_def: int) -> int:
     return attack - round((hard_def + random.randrange(0, 150) * 1.14))
 
 
+
 @click.command
 @click.argument("day", type=int)
-@click.argument("def_perso", type=int)
+#@click.argument("def_perso", type=int, required=False)
 @click.argument("min_attack", type=int)
 @click.argument("max_attack", type=int)
 @click.argument("hard_def", type=int)
 def main(
-    day: int, def_perso: int, min_attack: int, max_attack: int, hard_def: int
+    day: int, min_attack: int, max_attack: int, hard_def: int
 ) -> None:
     test_cases = 1000000
     random.seed()
-    attacks = (_generate_attack(day) for _ in repeat(None))
-    valid_attacks = (a for a in attacks if (a >= min_attack and a <= max_attack))
+    #attacks = _generate_attacks(day,min_attack, max_attack)
+#    valid_attacks = (a for a in attacks if (a >= min_attack and a <= max_attack))
     results = Counter(
-        _nb_death(_get_debord(max_attack, hard_def), def_perso)
-        for _, _ in zip(valid_attacks, range(test_cases))
+        _nb_death(attack - hard_def)
+        for attack, _ in zip(_generate_attacks(day,min_attack, max_attack)
+                             , range(test_cases))
     )
     print(
         "Chances de morts:\n"
